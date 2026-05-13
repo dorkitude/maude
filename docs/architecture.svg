@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="190" viewBox="0 0 780 190" role="img" aria-labelledby="title desc">
+  <title id="title">Maude architecture</title>
+  <desc id="desc">A shell command calls maude, which controls tmux, which runs Claude Code TUI, with state stored on disk.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#334155"/>
+    </marker>
+    <style>
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 8; }
+      .state { fill: #ecfdf5; stroke: #047857; stroke-width: 2; rx: 8; }
+      .label { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; fill: #0f172a; font-weight: 600; }
+      .small { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; fill: #475569; }
+      .arrow { stroke: #334155; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="20" y="45" width="130" height="70" class="box"/>
+  <text x="85" y="76" text-anchor="middle" class="label">script or CLI</text>
+  <text x="85" y="96" text-anchor="middle" class="small">maude -p "..."</text>
+
+  <rect x="215" y="45" width="130" height="70" class="box"/>
+  <text x="280" y="76" text-anchor="middle" class="label">maude</text>
+  <text x="280" y="96" text-anchor="middle" class="small">Cobra + Viper</text>
+
+  <rect x="410" y="45" width="130" height="70" class="box"/>
+  <text x="475" y="76" text-anchor="middle" class="label">tmux</text>
+  <text x="475" y="96" text-anchor="middle" class="small">persistent pane</text>
+
+  <rect x="605" y="45" width="150" height="70" class="box"/>
+  <text x="680" y="76" text-anchor="middle" class="label">Claude Code</text>
+  <text x="680" y="96" text-anchor="middle" class="small">full TUI session</text>
+
+  <rect x="215" y="135" width="325" height="38" class="state"/>
+  <text x="377" y="159" text-anchor="middle" class="small">state/config.json + state/sessions/*.json</text>
+
+  <path d="M150 80 H205" class="arrow"/>
+  <path d="M345 80 H400" class="arrow"/>
+  <path d="M540 80 H595" class="arrow"/>
+  <path d="M280 116 V128" class="arrow"/>
+  <path d="M475 128 V116" class="arrow"/>
+</svg>
