@@ -18,10 +18,11 @@ const (
 
 // Config is the user-editable Maude configuration persisted as JSON.
 type Config struct {
-	StateDir       string `json:"state_dir" mapstructure:"state_dir"`
-	DefaultSession string `json:"default_session" mapstructure:"default_session"`
-	TmuxPrefix     string `json:"tmux_prefix" mapstructure:"tmux_prefix"`
-	ClaudeBinary   string `json:"claude_binary" mapstructure:"claude_binary"`
+	StateDir       string   `json:"state_dir" mapstructure:"state_dir"`
+	DefaultSession string   `json:"default_session" mapstructure:"default_session"`
+	TmuxPrefix     string   `json:"tmux_prefix" mapstructure:"tmux_prefix"`
+	ClaudeBinary   string   `json:"claude_binary" mapstructure:"claude_binary"`
+	ClaudeArgs     []string `json:"claude_args" mapstructure:"claude_args"`
 
 	StartupWait      string `json:"startup_wait" mapstructure:"startup_wait"`
 	WaitTimeout      string `json:"wait_timeout" mapstructure:"wait_timeout"`
@@ -39,6 +40,7 @@ func Defaults() Config {
 		DefaultSession:   "default",
 		TmuxPrefix:       "maude",
 		ClaudeBinary:     "claude",
+		ClaudeArgs:       []string{"--dangerously-skip-permissions"},
 		StartupWait:      "2s",
 		WaitTimeout:      "30s",
 		WaitPollInterval: "500ms",
@@ -134,6 +136,7 @@ func newViper(path string) *viper.Viper {
 	v.SetDefault("default_session", cfg.DefaultSession)
 	v.SetDefault("tmux_prefix", cfg.TmuxPrefix)
 	v.SetDefault("claude_binary", cfg.ClaudeBinary)
+	v.SetDefault("claude_args", cfg.ClaudeArgs)
 	v.SetDefault("startup_wait", cfg.StartupWait)
 	v.SetDefault("wait_timeout", cfg.WaitTimeout)
 	v.SetDefault("wait_poll_interval", cfg.WaitPollInterval)

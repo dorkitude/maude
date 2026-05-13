@@ -32,6 +32,7 @@ type Request struct {
 	Resume       string    `json:"resume,omitempty"`
 	Prompt       string    `json:"prompt"`
 	ClaudeArgs   []string  `json:"claude_args,omitempty"`
+	OutputFormat string    `json:"output_format,omitempty"`
 	Cwd          string    `json:"cwd,omitempty"`
 	Status       string    `json:"status"`
 	Output       string    `json:"output,omitempty"`
@@ -140,6 +141,13 @@ func (q *Queue) Complete(id string, output string) (Request, error) {
 		req.CompletedAt = now
 		req.Error = ""
 		req.Intervention = ""
+	})
+}
+
+func (q *Queue) AppendOutput(id string, chunk string) (Request, error) {
+	return q.update(id, func(req *Request) {
+		req.Output += chunk
+		req.UpdatedAt = time.Now().UTC()
 	})
 }
 

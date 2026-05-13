@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	}
 
 	want := Defaults()
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %#v, want %#v", cfg, want)
 	}
 }
@@ -55,7 +56,7 @@ func TestSaveAndLoadPersistsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if got != cfg {
+	if !reflect.DeepEqual(got, cfg) {
 		t.Fatalf("Load() = %#v, want %#v", got, cfg)
 	}
 }

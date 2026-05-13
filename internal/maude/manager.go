@@ -176,6 +176,7 @@ func (m Manager) claudeCommand(resume string, extra []string) []string {
 		bin = "claude"
 	}
 	args := []string{bin}
+	args = append(args, m.Config.ClaudeArgs...)
 	if resume != "" {
 		args = append(args, "--resume", resume)
 	}

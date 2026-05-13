@@ -157,9 +157,10 @@ func (s Service) Run(ctx context.Context) error {
 
 func (s Service) process(ctx context.Context, q *queue.Queue, manager maude.Manager, req queue.Request) error {
 	env, err := envelope.BuildPrintRequest(envelope.PrintRequest{
-		RequestID:   req.ID,
-		Message:     req.Prompt,
-		RespondWith: fmt.Sprintf("%s --config %s agent print --request %s", shellQuote(s.Executable), shellQuote(s.ConfigPath), shellQuote(req.ID)),
+		RequestID:    req.ID,
+		Message:      req.Prompt,
+		RespondWith:  fmt.Sprintf("%s --config %s agent print --request %s", shellQuote(s.Executable), shellQuote(s.ConfigPath), shellQuote(req.ID)),
+		OutputFormat: req.OutputFormat,
 	})
 	if err != nil {
 		return err
