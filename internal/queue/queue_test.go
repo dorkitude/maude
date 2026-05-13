@@ -14,11 +14,11 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 	defer q.Close()
 
-	req, err := q.Enqueue(Request{Prompt: "hello", SessionName: "default"})
+	req, err := q.Enqueue(Request{Prompt: "hello", SessionName: "default", OutputFormat: "json"})
 	if err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
-	if req.ID == "" || req.Status != StatusQueued {
+	if req.ID == "" || req.Status != StatusQueued || req.OutputFormat != "json" {
 		t.Fatalf("request = %#v", req)
 	}
 
@@ -36,6 +36,14 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 	if running.Status != StatusRunning || running.StartedAt.IsZero() {
 		t.Fatalf("running = %#v", running)
+	}
+
+	streamed, err := q.AppendOutput(req.ID, "partial")
+	if err != nil {
+		t.Fatalf("AppendOutput() error = %v", err)
+	}
+	if streamed.Output != "partial" {
+		t.Fatalf("streamed output = %q, want partial", streamed.Output)
 	}
 
 	done, err := q.Complete(req.ID, "answer")

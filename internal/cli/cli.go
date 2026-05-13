@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -130,6 +132,10 @@ func runPrint(cmd *cobra.Command, opts *rootOptions, args []string) error {
 	if err != nil {
 		return err
 	}
+	outputFormat, err := outputFormat(cmd.Flags())
+	if err != nil {
+		return err
+	}
 	if err := config.Save(configPath(opts.configPath), cfg); err != nil {
 		return err
 	}
@@ -142,11 +148,12 @@ func runPrint(cmd *cobra.Command, opts *rootOptions, args []string) error {
 
 	cwd, _ := os.Getwd()
 	req, err := q.Enqueue(queue.Request{
-		SessionName: opts.session,
-		Resume:      opts.resume,
-		Prompt:      prompt,
-		ClaudeArgs:  forwardArgs(cmd.Flags()),
-		Cwd:         cwd,
+		SessionName:  opts.session,
+		Resume:       opts.resume,
+		Prompt:       prompt,
+		ClaudeArgs:   forwardArgs(cmd.Flags()),
+		OutputFormat: outputFormat,
+		Cwd:          cwd,
 	})
 	if err != nil {
 		return err
@@ -158,12 +165,19 @@ func runPrint(cmd *cobra.Command, opts *rootOptions, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout(), req.ID)
 		return nil
 	}
+	if outputFormat == "stream-json" {
+		return streamRequestOutput(cmd.OutOrStdout(), q, req.ID, cfg)
+	}
 	result, err := waitForRequest(q, req.ID, cfg)
 	if err != nil {
 		return err
 	}
-	if result.Output != "" {
-		fmt.Fprintln(cmd.OutOrStdout(), result.Output)
+	output, err := formatRequestOutput(result)
+	if err != nil {
+		return err
+	}
+	if output != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), output)
 	}
 	return nil
 }
@@ -283,15 +297,22 @@ func newAgentPrintCommand(parent *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			data, err := io.ReadAll(cmd.InOrStdin())
-			if err != nil {
-				return err
-			}
 			q, err := queue.Open(state.New(cfg.StateDir).DBPath())
 			if err != nil {
 				return err
 			}
 			defer q.Close()
+			req, err := q.Get(requestID)
+			if err != nil {
+				return err
+			}
+			if req.OutputFormat == "stream-json" {
+				return streamAgentPrint(cmd.InOrStdin(), q, requestID)
+			}
+			data, err := io.ReadAll(cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
 			_, err = q.Complete(requestID, strings.TrimRight(string(data), "\n"))
 			return err
 		},
@@ -412,6 +433,177 @@ func CollectPrompt(args []string, in io.Reader) (string, error) {
 		return "", fmt.Errorf("no prompt provided")
 	}
 	return prompt, nil
+}
+
+func streamAgentPrint(in io.Reader, q *queue.Queue, requestID string) error {
+	reader := bufio.NewReader(in)
+	var output strings.Builder
+	buf := make([]byte, 1024)
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			chunk := string(buf[:n])
+			output.WriteString(chunk)
+			if _, appendErr := q.AppendOutput(requestID, chunk); appendErr != nil {
+				return appendErr
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	_, err := q.Complete(requestID, strings.TrimRight(output.String(), "\n"))
+	return err
+}
+
+func outputFormat(flags *pflag.FlagSet) (string, error) {
+	value, err := flags.GetString("output-format")
+	if err != nil {
+		return "", err
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "text", nil
+	}
+	switch value {
+	case "text", "json", "stream-json":
+		return value, nil
+	default:
+		return "", fmt.Errorf("--output-format must be one of: text, json, stream-json")
+	}
+}
+
+func formatRequestOutput(req queue.Request) (string, error) {
+	format := strings.TrimSpace(req.OutputFormat)
+	if format == "" {
+		format = "text"
+	}
+	switch format {
+	case "text":
+		return req.Output, nil
+	case "json":
+		data, err := json.Marshal(map[string]any{
+			"type":       "result",
+			"subtype":    "success",
+			"is_error":   false,
+			"request_id": req.ID,
+			"result":     req.Output,
+		})
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	case "stream-json":
+		assistant, err := streamAssistantEvent(req.ID, req.Output)
+		if err != nil {
+			return "", err
+		}
+		result, err := streamResultEvent(req)
+		if err != nil {
+			return "", err
+		}
+		return assistant + "\n" + result, nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q", format)
+	}
+}
+
+func streamRequestOutput(w io.Writer, q *queue.Queue, id string, cfg config.Config) error {
+	timeout, err := cfg.RequestTimeoutDuration()
+	if err != nil {
+		return err
+	}
+	deadline := time.Now().Add(timeout)
+	printedInit := false
+	printedBytes := 0
+	for {
+		req, err := q.Get(id)
+		if err != nil {
+			return err
+		}
+		if !printedInit {
+			if err := writeStreamLine(w, map[string]any{
+				"type":       "system",
+				"subtype":    "init",
+				"request_id": req.ID,
+				"cwd":        req.Cwd,
+			}); err != nil {
+				return err
+			}
+			printedInit = true
+		}
+		if len(req.Output) > printedBytes {
+			chunk := req.Output[printedBytes:]
+			line, err := streamAssistantEvent(req.ID, chunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				return err
+			}
+			printedBytes = len(req.Output)
+		}
+		switch req.Status {
+		case queue.StatusDone:
+			line, err := streamResultEvent(req)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(w, line)
+			return err
+		case queue.StatusFailed:
+			return fmt.Errorf("%s", req.Error)
+		case queue.StatusNeedsIntervention:
+			return fmt.Errorf("%s; run `maude attach --session %s` to intervene", req.Intervention, req.SessionName)
+		}
+		if timeout > 0 && time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for request %s", id)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func streamAssistantEvent(requestID string, text string) (string, error) {
+	data, err := json.Marshal(map[string]any{
+		"type":       "assistant",
+		"request_id": requestID,
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []map[string]string{
+				{"type": "text", "text": text},
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func streamResultEvent(req queue.Request) (string, error) {
+	data, err := json.Marshal(map[string]any{
+		"type":       "result",
+		"subtype":    "success",
+		"is_error":   false,
+		"request_id": req.ID,
+		"result":     req.Output,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func writeStreamLine(w io.Writer, value map[string]any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(data))
+	return err
 }
 
 func waitForRequest(q *queue.Queue, id string, cfg config.Config) (queue.Request, error) {

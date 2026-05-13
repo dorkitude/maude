@@ -2,7 +2,7 @@ package maude
 
 import (
 	"context"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,7 +22,7 @@ func (f *fakeTmux) HasSession(context.Context, string) (bool, error) {
 }
 
 func (f *fakeTmux) NewSession(_ context.Context, session string, cwd string, command []string) error {
-	f.calls = append(f.calls, "new:"+session+":"+cwd+":"+reflect.ValueOf(command).String())
+	f.calls = append(f.calls, "new:"+session+":"+cwd+":"+strings.Join(command, " "))
 	f.has = true
 	return nil
 }
@@ -98,8 +98,26 @@ func TestRunPrintSwitchesResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrint() error = %v", err)
 	}
-	if !containsCall(ft.calls, "C-c") || !containsCall(ft.calls, "paste:claude --resume new") {
+	if !containsCall(ft.calls, "C-c") || !containsCall(ft.calls, "paste:claude --dangerously-skip-permissions --resume new") {
 		t.Fatalf("resume switch calls = %#v", ft.calls)
+	}
+}
+
+func TestRunPrintStartsClaudeWithConfiguredArgs(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.ClaudeArgs = []string{"--permission-mode", "bypassPermissions"}
+	ft := &fakeTmux{}
+	m := NewManager(cfg, state.New(t.TempDir()), ft)
+	m.Sleep = func(time.Duration) {}
+
+	_, err := m.RunPrint(context.Background(), RunOptions{Prompt: "hello", NoWait: true, Cwd: "/tmp/project"})
+	if err != nil {
+		t.Fatalf("RunPrint() error = %v", err)
+	}
+	if !containsCall(ft.calls, "new:maude-default:/tmp/project:claude --permission-mode bypassPermissions") {
+		t.Fatalf("new session calls = %#v", ft.calls)
 	}
 }
 
