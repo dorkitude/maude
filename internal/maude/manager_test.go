@@ -121,6 +121,66 @@ func TestRunPrintStartsClaudeWithConfiguredArgs(t *testing.T) {
 	}
 }
 
+func TestWaitForClaudeReadyReturnsWhenMarkerAppears(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.ReadyMarker = "? for shortcuts"
+	cfg.ReadyTimeout = "5s"
+	cfg.CaptureLines = 10
+	ft := &fakeTmux{captures: []string{
+		"welcome to claude code",
+		"loading...",
+		"claude > _\n? for shortcuts",
+	}}
+	m := NewManager(cfg, state.New(t.TempDir()), ft)
+	m.Sleep = func(time.Duration) {}
+
+	if err := m.waitForClaudeReady(context.Background(), "maude-default:0.0"); err != nil {
+		t.Fatalf("waitForClaudeReady() error = %v", err)
+	}
+	got := 0
+	for _, c := range ft.calls {
+		if c == "capture" {
+			got++
+		}
+	}
+	if got < 3 {
+		t.Fatalf("expected at least 3 capture calls, got %d (%#v)", got, ft.calls)
+	}
+}
+
+func TestWaitForClaudeReadyTimesOut(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.ReadyMarker = "? for shortcuts"
+	cfg.ReadyTimeout = "100ms"
+	ft := &fakeTmux{captures: []string{"welcome", "welcome", "welcome"}}
+	m := NewManager(cfg, state.New(t.TempDir()), ft)
+	m.Sleep = func(time.Duration) {}
+
+	start := time.Now()
+	var calls int
+	m.Now = func() time.Time {
+		calls++
+		// First call sets deadline at start+100ms; subsequent deadline checks
+		// jump past the deadline so the loop exits with a timeout error.
+		if calls > 2 {
+			return start.Add(time.Second)
+		}
+		return start
+	}
+
+	err := m.waitForClaudeReady(context.Background(), "maude-default:0.0")
+	if err == nil {
+		t.Fatal("waitForClaudeReady() error = nil, want timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("waitForClaudeReady() error = %v, want a timeout error", err)
+	}
+}
+
 func TestRunPrintDetectsIntervention(t *testing.T) {
 	t.Parallel()
 
@@ -144,6 +204,7 @@ func testConfig() config.Config {
 	cfg.WaitTimeout = "0s"
 	cfg.WaitPollInterval = "0s"
 	cfg.CaptureDelay = "0s"
+	cfg.ReadyMarker = "" // existing fakeTmux captures don't include the live marker
 	return cfg
 }
 

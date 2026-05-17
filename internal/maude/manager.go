@@ -113,6 +113,9 @@ func (m Manager) Submit(ctx context.Context, opts RunOptions) (state.Session, er
 		sess.LastStatus = "created"
 		sess.ClaudeResume = opts.Resume
 		m.sleepConfig(m.Config.StartupWaitDuration)
+		if err := m.waitForClaudeReady(ctx, sess.PaneTarget); err != nil {
+			return state.Session{}, fmt.Errorf("wait for Claude TUI ready: %w", err)
+		}
 	} else {
 		sess.LastStatus = "reused"
 	}
@@ -196,7 +199,46 @@ func (m Manager) switchResume(ctx context.Context, target string, resume string,
 		return fmt.Errorf("run resume command: %w", err)
 	}
 	m.sleepConfig(m.Config.StartupWaitDuration)
+	if err := m.waitForClaudeReady(ctx, target); err != nil {
+		return fmt.Errorf("wait for Claude TUI ready after resume: %w", err)
+	}
 	return nil
+}
+
+// readyPollInterval is how often waitForClaudeReady polls the tmux pane.
+const readyPollInterval = 200 * time.Millisecond
+
+// waitForClaudeReady polls the tmux pane until ReadyMarker appears in the
+// captured output, or until ReadyTimeout elapses. This fixes the race where
+// the prompt was pasted before the Claude Code TUI rendered its input box
+// (issue #2). Returns nil immediately if ReadyMarker or ReadyTimeout is zero
+// — callers opt out by clearing either.
+func (m Manager) waitForClaudeReady(ctx context.Context, target string) error {
+	marker := strings.TrimSpace(m.Config.ReadyMarker)
+	if marker == "" {
+		return nil
+	}
+	timeout, err := m.Config.ReadyTimeoutDuration()
+	if err != nil {
+		return fmt.Errorf("parse ready_timeout: %w", err)
+	}
+	if timeout <= 0 {
+		return nil
+	}
+	deadline := m.Now().Add(timeout)
+	for {
+		out, err := m.Tmux.CapturePane(ctx, target, m.Config.CaptureLines)
+		if err != nil {
+			return fmt.Errorf("capture pane while waiting for Claude ready marker: %w", err)
+		}
+		if strings.Contains(out, marker) {
+			return nil
+		}
+		if !m.Now().Before(deadline) {
+			return fmt.Errorf("timed out after %s waiting for Claude ready marker %q", timeout, marker)
+		}
+		m.sleep(readyPollInterval)
+	}
 }
 
 func (m Manager) captureStable(ctx context.Context, target string) (string, error) {
